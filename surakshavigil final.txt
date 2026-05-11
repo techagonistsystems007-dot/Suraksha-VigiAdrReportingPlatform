@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <title>Suraksha Vigil Bot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #0b141a; font-family: Arial, sans-serif; }
+        body { display: flex; justify-content: center; align-items: center; }
+        .app { position: fixed; inset: 0; width: 100%; height: 100dvh; background: #efeae2; display: flex; flex-direction: column; overflow: hidden; }
+        @media(min-width: 700px) { body { padding: 20px; } .app { position: relative; max-width: 430px; height: 95vh; border-radius: 22px; box-shadow: 0 0 35px rgba(0,0,0,.5); } }
+        .header { background: #075e54; color: white; display: flex; justify-content: space-between; align-items: center; padding: max(12px, env(safe-area-inset-top)) 14px 12px 14px; flex-shrink: 0; z-index: 5; }
+        .left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .dp { width: 44px; height: 44px; border-radius: 50%; background: white; display: flex; justify-content: center; align-items: center; font-size: 22px; flex-shrink: 0; }
+        .head-text b { font-size: 15px; white-space: nowrap; }
+        .head-text small { font-size: 12px; opacity: .8; }
+        .helpline-btn { background: rgba(255,255,255,.15); padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; }
+        .chat { flex: 1; overflow-y: auto; padding: 12px; background: #efeae2; scroll-behavior: smooth; }
+        .msg { max-width: 85%; padding: 11px 13px; margin: 5px 0; border-radius: 14px; font-size: 14px; line-height: 1.5; animation: fade .2s ease; }
+        @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .bot { background: white; align-self: flex-start; border-top-left-radius: 0; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+        .user { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 0; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+        .time { font-size: 10px; color: gray; margin-top: 4px; text-align: right; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+        .chip { background: #128c7e; color: white; border: none; padding: 10px 15px; border-radius: 22px; font-size: 13px; cursor: pointer; }
+        .input-area { display: flex; align-items: center; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)) 10px; background: #f0f2f5; }
+        input { flex: 1; padding: 13px 15px; border: none; border-radius: 25px; outline: none; font-size: 16px; background: white; }
+        .send, .mic { width: 46px; height: 46px; border: none; border-radius: 50%; background: #075e54; color: white; cursor: pointer; }
+        .call-screen { position: absolute; inset: 0; background: #075e54; display: none; flex-direction: column; justify-content: center; align-items: center; color: white; text-align: center; z-index: 9999; }
+        .dial-btn { width: 75px; height: 75px; border-radius: 50%; border: none; background: white; color: #075e54; font-size: 28px; font-weight: bold; }
+        .end { margin-top: 35px; padding: 13px 30px; border: none; border-radius: 25px; background: red; color: white; }
+    </style>
+</head>
+<body>
+
+<div class="app">
+    <div class="header">
+        <div class="left">
+            <div class="dp">🛡️</div>
+            <div class="head-text"><b>Suraksha Vigil Bot</b><br><small>online</small></div>
+        </div>
+        <div class="helpline-btn" onclick="startCall()">📞 Helpline</div>
+    </div>
+    <div class="chat" id="chat"></div>
+    <div class="input-area">
+        <input type="text" id="input" placeholder="Type message..." onkeypress="if(event.key==='Enter') send()" />
+        <button class="send" onclick="send()">➤</button>
+        <button class="mic" onclick="voiceInput()">🎤</button>
+    </div>
+
+    <div class="call-screen" id="callScreen">
+        <div class="call-title">Suraksha Vigil Helpline</div>
+        <div class="call-info" id="callInfo">Connecting...</div>
+        <div class="dialpad">
+            <button class="dial-btn" onclick="dialOption(1)">1</button>
+            <button class="dial-btn" onclick="dialOption(2)">2</button>
+            <button class="dial-btn" onclick="dialOption(3)">3</button>
+        </div>
+        <button class="end" onclick="endCall()">End Call</button>
+    </div>
+</div>
+
+<script>
+    let lang = "";
+    let step = 0;
+    let data = {};
+    let chatStarted = false;
+    const chat = document.getElementById("chat");
+
+    const mrQuestions = [
+        { q: "रुग्णाचे पूर्ण नाव काय आहे?" }, // Q0
+        { q: "वय किंवा जन्मतारीख सांगा:" }, // Q1
+        { q: "लिंग निवडा:", chips: ["पुरुष", "महिला", "इतर"] }, // Q2
+        { q: "रुग्णाचे वजन (kg) किती आहे?" }, // Q3
+        { q: "काय त्रास झाला? (विस्तृत माहिती द्या)" }, // Q4
+        { q: "हा त्रास कधी सुरू झाला? (तारीख सांगा)" }, // Q5
+        { q: "हा त्रास कधी थांबला? (किंवा अजून चालू आहे का?)" }, // Q6
+        { q: "संशयास्पद औषधाचे नाव काय आहे?" }, // Q7
+        { q: "औषधाचा डोस (Dosage) किती होता?" }, // Q8
+        { q: "औषध किती वेळा घेतले? (उदा. दिवसातून २ वेळा)" }, // Q9
+        { q: "औषध घेण्याचा मार्ग कोणता?", chips: ["Oral", "Injection", "Topical"] }, // Q10
+        { q: "हे औषध कशासाठी सुरू केले होते?" }, // Q11
+        { q: "औषध सुरू केल्याची तारीख सांगा:" }, // Q12
+        { q: "औषध बंद केल्याची तारीख (असल्यास):" }, // Q13
+        { q: "औषध बंद केल्यावर त्रास कमी झाला का?", chips: ["हो", "नाही", "माहित नाही"] }, // Q14
+        { q: "औषध पुन्हा सुरू केल्यावर त्रास परत झाला का?", chips: ["हो", "नाही", "पुन्हा सुरू केले नाही"] }, // Q15
+        { q: "सोबत इतर कोणती औषधे चालू होती का?" }, // Q16
+        { q: "तुम्हाला कोणती ॲलर्जी आहे का?" }, // Q17
+        { q: "तुमचा वैद्यकीय इतिहास (इतर आजार):" }, // Q18
+        { q: "हा त्रास किती गंभीर होता?", chips: ["सौम्य", "मध्यम", "गंभीर"] }, // Q19
+        { q: "तुम्ही ही माहिती कोण म्हणून भरत आहात?", chips: ["Patient", "Doctor", "Pharmacist", "Guardian"] }, // Q20
+        { q: "हॉस्पिटलला जावे लागले का?", chips: ["हो", "नाही"] }, // Q21
+        { q: "तुमचे (रिपोर्टरचे) नाव काय आहे?" }, // Q22
+        { q: "तुमचा मोबाईल नंबर किंवा संपर्क:" }, // Q23
+        { q: "आजची तारीख (Report Date):" } // Q24
+    ];
+
+    const enQuestions = [
+        { q: "What is the Patient's Full Name?" },
+        { q: "Enter Age or Date of Birth:" },
+        { q: "Select Gender:", chips: ["Male", "Female", "Other"] },
+        { q: "What is the Patient's Weight (kg)?" },
+        { q: "Describe the reaction (side effect):" },
+        { q: "When did the reaction start?" },
+        { q: "When did the reaction end?" },
+        { q: "What is the name of the suspected medicine?" },
+        { q: "What was the dosage?" },
+        { q: "Frequency? (e.g., Twice a day)" },
+        { q: "Route of administration?", chips: ["Oral", "Injection", "Topical"] },
+        { q: "Reason for using this medicine?" },
+        { q: "When did you start the medication?" },
+        { q: "When did you stop the medication?" },
+        { q: "Did reaction stop after stopping medicine?", chips: ["Yes", "No", "Don't Know"] },
+        { q: "Did reaction reappear after restarting?", chips: ["Yes", "No", "Not Restarted"] },
+        { q: "Any other medicines being taken?" },
+        { q: "Do you have any known allergies?" },
+        { q: "Past Medical History (Other diseases):" },
+        { q: "How serious was the reaction?", chips: ["Mild", "Moderate", "Serious"] },
+        { q: "Who are you reporting as?", chips: ["Patient", "Doctor", "Pharmacist", "Guardian"] },
+        { q: "Was hospitalization required?", chips: ["Yes", "No"] },
+        { q: "What is your (Reporter) Name?" },
+        { q: "Your contact details (Mobile/Email):" },
+        { q: "Date of Report:" }
+    ];
+
+    function addMsg(msg, type) {
+        let div = document.createElement("div");
+        div.className = "msg " + type;
+        div.innerHTML = msg + `<div class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    window.onload = () => {
+        addMsg("<b>🛡️ Welcome to Suraksha Vigil Bot</b><br><br>Smart ADR Reporting Assistant.<br><br>कृपया भाषा निवडा / Please choose language.", "bot");
+        showLanguageButtons();
+    };
+
+    function showLanguageButtons() {
+        let wrap = document.createElement("div");
+        wrap.className = "chips";
+        let b1 = document.createElement("button"); b1.className = "chip"; b1.innerText = "🇮🇳 मराठी"; b1.onclick = () => setLang("mr");
+        let b2 = document.createElement("button"); b2.className = "chip"; b2.innerText = "🇬🇧 English"; b2.onclick = () => setLang("en");
+        wrap.appendChild(b1); wrap.appendChild(b2);
+        chat.appendChild(wrap);
+    }
+
+    function setLang(l) {
+        lang = l;
+        addMsg(l === "mr" ? "मराठी निवडली" : "English Selected", "user");
+        chatStarted = true; step = 0; data = {};
+        setTimeout(askQuestion, 700);
+    }
+
+    function askQuestion() {
+        let qs = lang === "mr" ? mrQuestions : enQuestions;
+        if (step < qs.length) {
+            addMsg(qs[step].q, "bot");
+            if (qs[step].chips) showChips(qs[step].chips);
+        } else {
+            addMsg(lang === "mr" ? "✅ तुमचा रिपोर्ट जमा झाला आहे." : "✅ Your report has been submitted.", "bot");
+            sendToSheet(data);
+        }
+    }
+
+    function showChips(arr) {
+        let wrap = document.createElement("div"); wrap.className = "chips";
+        arr.forEach(x => {
+            let b = document.createElement("button"); b.className = "chip"; b.innerText = x;
+            b.onclick = () => handleInput(x);
+            wrap.appendChild(b);
+        });
+        chat.appendChild(wrap);
+    }
+
+    function handleInput(v) {
+        addMsg(v, "user");
+        data["Q" + step] = v;
+        step++;
+        setTimeout(askQuestion, 500);
+    }
+
+    function send() {
+        let val = document.getElementById("input").value.trim();
+        if (!val || !chatStarted) return;
+        handleInput(val);
+        document.getElementById("input").value = "";
+    }
+
+    function sendToSheet(finalData) {
+        // तुमचा नवीन Deployment URL
+        const scriptURL = "https://script.google.com/macros/s/AKfycbwFpwhjvs0BIHOlUj1KECNqUpfyUgEjGL4nRTZRaPTIKYlyLz-JSvalJD4pzzhncwONug/exec";
+        fetch(scriptURL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(finalData)
+        }).then(() => console.log("Data Sent")).catch(e => console.error(e));
+    }
+
+    function startCall() { document.getElementById("callScreen").style.display = "flex"; }
+    function endCall() { document.getElementById("callScreen").style.display = "none"; }
+    function voiceInput() {
+        let recog = new webkitSpeechRecognition();
+        recog.lang = lang === "en" ? "en-IN" : "mr-IN";
+        recog.start();
+        recog.onresult = (e) => handleInput(e.results[0][0].transcript);
+    }
+</script>
+</body>
+</html>
